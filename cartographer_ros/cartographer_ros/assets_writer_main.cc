@@ -64,6 +64,9 @@ DEFINE_string(pose_graph_filename, "",
 DEFINE_bool(use_bag_transforms, true,
             "Whether to read and use the transforms from the bag.");
 
+DEFINE_double(cut_from_end, 0,
+            "Time to cut from end of bag - useful for removing last few submaps which may not have aligned correctly.");
+
 namespace cartographer_ros {
 namespace {
 
@@ -139,7 +142,7 @@ std::unique_ptr<carto::io::PointsBatch> HandleMessage(
 void Run(const string& pose_graph_filename,
          const std::vector<string>& bag_filenames,
          const string& configuration_directory,
-         const string& configuration_basename, const string& urdf_filename) {
+         const string& configuration_basename, const string& urdf_filename, const float &cut_from_end) {
   auto file_resolver =
       carto::common::make_unique<carto::common::ConfigurationFileResolver>(
           std::vector<string>{configuration_directory});
@@ -177,22 +180,25 @@ void Run(const string& pose_graph_filename,
   const string tracking_frame =
       lua_parameter_dictionary.GetString("tracking_frame");
   do {
-    for (size_t trajectory_id = 0; trajectory_id < bag_filenames.size();
-         ++trajectory_id) {
+    for (size_t trajectory_id = 0; trajectory_id < bag_filenames.size(); ++trajectory_id) 
+    {
       const carto::mapping::proto::Trajectory& trajectory_proto =
           pose_graph_proto.trajectory(trajectory_id);
       const string& bag_filename = bag_filenames[trajectory_id];
       LOG(INFO) << "Processing " << bag_filename << "...";
-      if (trajectory_proto.node_size() == 0) {
+      if (trajectory_proto.node_size() == 0) 
+      {
+        LOG(INFO) << "Node size = 0!";
         continue;
       }
       tf2_ros::Buffer tf_buffer(::ros::DURATION_MAX);
-      if (FLAGS_use_bag_transforms) {
-        LOG(INFO) << "Pre-loading transforms from bag...";
-        ReadTransformsFromBag(bag_filename, &tf_buffer);
-      }
+      //if (FLAGS_use_bag_transforms) {
+      //  LOG(INFO) << "Pre-loading transforms from bag...";
+      //  ReadTransformsFromBag(bag_filename, &tf_buffer);
+      //}
 
       if (!urdf_filename.empty()) {
+        LOG(INFO) << "Reading URDF from file...";
         ReadStaticTransformsFromUrdf(urdf_filename, &tf_buffer);
       }
 
@@ -206,7 +212,18 @@ void Run(const string& pose_graph_filename,
       const double duration_in_seconds =
           (view.getEndTime() - begin_time).toSec();
 
-      for (const rosbag::MessageInstance& message : view) {
+      for (const rosbag::MessageInstance& message : view) 
+      {
+        if (cut_from_end > 0)
+        {
+          double elapsed = (message.getTime() - begin_time).toSec();
+          if (duration_in_seconds - elapsed < cut_from_end)
+          {
+            ROS_INFO_STREAM (cut_from_end <<" seconds remaining, breaking out!");
+            break;
+          }
+        }
+
         std::unique_ptr<carto::io::PointsBatch> points_batch;
         if (message.isType<sensor_msgs::PointCloud2>()) {
           points_batch = HandleMessage(
@@ -255,5 +272,5 @@ int main(int argc, char** argv) {
       FLAGS_pose_graph_filename,
       cartographer_ros::SplitString(FLAGS_bag_filenames, ','),
       FLAGS_configuration_directory, FLAGS_configuration_basename,
-      FLAGS_urdf_filename);
+      FLAGS_urdf_filename, FLAGS_cut_from_end);
 }
