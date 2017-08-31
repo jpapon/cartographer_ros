@@ -40,9 +40,9 @@ DEFINE_string(configuration_directory, "",
               "First directory in which configuration files are searched, "
               "second is always the Cartographer installation to allow "
               "including files from there.");
-DEFINE_string(configuration_basename, "",
-              "Basename, i.e. not containing any directory prefix, of the "
-              "configuration file.");
+DEFINE_string(configuration_basenames, "",
+              "Comma-separated basenames, i.e. not containing any directory prefix, of the "
+              "configuration files.");
 DEFINE_string(bag_filenames, "", "Comma-separated list of bags to process.");
 DEFINE_string(
     urdf_filename, "",
@@ -64,13 +64,14 @@ constexpr char kTfTopic[] = "tf";
 constexpr double kClockPublishFrequencySec = 1. / 30.;
 constexpr int kSingleThreaded = 1;
 
-void Run(const std::vector<string>& bag_filenames) {
+void Run(const std::vector<string>& bag_filenames,
+         const std::vector<string>& configuration_basenames) {
   const std::chrono::time_point<std::chrono::steady_clock> start_time =
       std::chrono::steady_clock::now();
   NodeOptions node_options;
   TrajectoryOptions trajectory_options;
   std::tie(node_options, trajectory_options) =
-      LoadOptions(FLAGS_configuration_directory, FLAGS_configuration_basename);
+      LoadOptions(FLAGS_configuration_directory, configuration_basenames[0]);
 
   tf2_ros::Buffer tf_buffer;
 
@@ -123,10 +124,13 @@ void Run(const std::vector<string>& bag_filenames) {
       },
       false /* oneshot */, false /* autostart */);
 
+  size_t idx = 0;
   for (const string& bag_filename : bag_filenames) {
     if (!::ros::ok()) {
       break;
     }
+    if (configuration_basenames.size() > 1)
+      std::tie(node_options, trajectory_options) = LoadOptions(FLAGS_configuration_directory, configuration_basenames[idx]);
 
     const int trajectory_id =
         node.AddOfflineTrajectory(expected_sensor_ids, trajectory_options);
@@ -210,6 +214,7 @@ void Run(const std::vector<string>& bag_filenames) {
 
     bag.close();
     node.FinishTrajectory(trajectory_id);
+    idx++;
   }
 
   // Ensure the clock is republished after the bag has been finished, during the
@@ -252,7 +257,7 @@ int main(int argc, char** argv) {
 
   CHECK(!FLAGS_configuration_directory.empty())
       << "-configuration_directory is missing.";
-  CHECK(!FLAGS_configuration_basename.empty())
+  CHECK(!FLAGS_configuration_basenames.empty())
       << "-configuration_basename is missing.";
   CHECK(!FLAGS_bag_filenames.empty()) << "-bag_filenames is missing.";
 
@@ -261,7 +266,8 @@ int main(int argc, char** argv) {
 
   cartographer_ros::ScopedRosLogSink ros_log_sink;
   cartographer_ros::Run(
-      cartographer_ros::SplitString(FLAGS_bag_filenames, ','));
+      cartographer_ros::SplitString(FLAGS_bag_filenames, ','),
+      cartographer_ros::SplitString(FLAGS_configuration_basenames, ','));
 
   ::ros::shutdown();
 }
