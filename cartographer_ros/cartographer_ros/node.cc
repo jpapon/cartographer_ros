@@ -40,6 +40,8 @@
 #include "ros/serialization.h"
 #include "sensor_msgs/PointCloud2.h"
 #include "tf2_eigen/tf2_eigen.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.h"
+
 #include "visualization_msgs/MarkerArray.h"
 
 namespace cartographer_ros {
@@ -104,6 +106,9 @@ Node::Node(const NodeOptions& node_options, tf2_ros::Buffer* const tf_buffer)
   scan_matched_point_cloud_publisher_ =
       node_handle_.advertise<sensor_msgs::PointCloud2>(
           kScanMatchedPointCloudTopic, kLatestOnlyPublisherQueueSize);
+  pose_publisher_ =
+      node_handle_.advertise<nav_msgs::Odometry>(
+          "/estimated_cartographer_pose", kLatestOnlyPublisherQueueSize);
 
   wall_timers_.push_back(node_handle_.createWallTimer(
       ::ros::WallDuration(node_options_.submap_publish_period_sec),
@@ -209,7 +214,16 @@ void Node::PublishTrajectoryStates(const ::ros::WallTimerEvent& timer_event) {
             trajectory_state.trajectory_options.published_frame;
         stamped_transform.transform = ToGeometryMsgTransform(
             tracking_to_map * (*trajectory_state.published_to_tracking));
-        tf_broadcaster_.sendTransform(stamped_transform);
+        //tf_broadcaster_.sendTransform(stamped_transform);
+        nav_msgs::Odometry odometry_msg;
+        odometry_msg.pose.pose.position.x = stamped_transform.transform.translation.x;
+        odometry_msg.pose.pose.position.y = stamped_transform.transform.translation.y;
+        odometry_msg.pose.pose.position.z = stamped_transform.transform.translation.z;
+
+        odometry_msg.pose.pose.orientation = stamped_transform.transform.rotation;
+        odometry_msg.header.frame_id = stamped_transform.header.frame_id;
+        odometry_msg.header.stamp = ros::Time::now();
+        pose_publisher_.publish(odometry_msg);
       }
     }
   }
